@@ -1,0 +1,1 @@
+{"LEN":"LET(addX, LAMBDA(num, x, num + x), LAMBDA(arr, addX(1, 2)))"}

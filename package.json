@@ -1,0 +1,15 @@
+{
+  "name": "excel-script",
+  "version": "1.0.0",
+  "description": "Excel function transpiler",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Dever Kemme Nash",
+  "license": "GPL-3.0-or-later",
+  "dependencies": {
+    "acorn": "^8.8.0"
+  }
+}
