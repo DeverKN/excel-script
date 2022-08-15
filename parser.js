@@ -9,11 +9,11 @@ const Identifier = (node) => {
     return node.name
 }
 
-const BlockStatement = (node) => {
+const BlockStatement = (node, scope) => {
     const {body} = node
-    const variables = body.filter(({type}) => type === "VariableDeclaration").map(variable => visitNode(variable)).flat()
-    const identifiers = body.filter(({type}) => type === "Identifier").map(identifier => visitNode(identifier))
-    const returnVal = visitNode(body.find(({type}) => type === "ReturnStatement"))
+    const variables = body.filter(({type}) => type === "VariableDeclaration").map(variable => scope.traverse(variable)).flat()
+    const identifiers = body.filter(({type}) => type === "Identifier").map(identifier => scope.traverse(identifier))
+    const returnVal = scope.traverse(body.find(({type}) => type === "ReturnStatement"))
     if (variables.length > 0) {
         return `LET(${variables.map(({name, init}) => `${name}, ${init}`).join(", ")}, ${returnVal})`
     } else {
@@ -21,23 +21,23 @@ const BlockStatement = (node) => {
     }
 }
 
-const BinaryExpression = (node) => {
+const BinaryExpression = (node, scope) => {
     const {left, operator, right} = node
-    return `${visitNode(left)} ${operator} ${visitNode(right)}`
+    return `${scope.traverse(left)} ${operator} ${scope.traverse(right)}`
 }
 
-const ArrowFunctionExpression = (node) => {
+const ArrowFunctionExpression = (node, scope) => {
     const {params, body} = node
-    return `LAMBDA(${params.map(param => visitNode(param)).join(", ")}, ${visitNode(body)})`
+    return `LAMBDA(${params.map(param => scope.traverse(param)).join(", ")}, ${scope.traverse(body)})`
 }
 
-const ExpressionStatement = (node) => {
-    return visitNode(node.expression)
+const ExpressionStatement = (node, scope) => {
+    return scope.traverse(node.expression)
 }
 
-const CallExpression = (node) => {
+const CallExpression = (node, scope) => {
     const {callee, arguments: args} = node
-    return `${visitNode(callee)}(${args.map(arg => visitNode(arg)).join(", ")})`
+    return `${scope.traverse(callee)}(${args.map(arg => scope.traverse(arg)).join(", ")})`
 }
 
 const functionWithVariables = (variables, functionString) => {
@@ -48,36 +48,40 @@ const functionWithVariables = (variables, functionString) => {
     }
 }
 
-const Program = (node) => {
+const Program = (node, scope) => {
     const {body} = node
-    const variables = body.filter(({type}) => type === "VariableDeclaration").map(variable => visitNode(variable)).flat()
-    const returnVal = visitNode(body.find(({type}) => type === "ExportDefaultDeclaration"))
+    const variables = body.filter(({type}) => type === "VariableDeclaration").map(variable => scope.traverse(variable)).flat()
+    const returnVal = scope.traverse(body.find(({type}) => type === "ExportDefaultDeclaration"))
     const exportsArr = body.filter(({type}) => type === "ExportNamedDeclaration")
-                           .map(exportDec => visitNode(exportDec))
+                           .map(exportDec => scope.traverse(exportDec))
                            .map(([exportedName, exportedFunc]) => [exportedName, functionWithVariables(variables, exportedFunc)])
     const exports = Object.fromEntries(exportsArr)
-    return {exports, main: `=${functionWithVariables(variables, returnVal)}`}
-}
-
-const VariableDeclaration = (node) => {
-    return node.declarations.map(declaration => visitNode(declaration))
-}
-
-const VariableDeclarator = (node) => {
-    const {id, init} = node
     return {
-        name: id.name,
-        init: visitNode(init)
+        exports, 
+        variables,
+        main: returnVal
     }
 }
 
-const ReturnStatement = (node) => {
-    return visitNode(node.argument)
+const VariableDeclaration = (node, scope) => {
+    return node.declarations.map(declaration => scope.traverse(declaration))
 }
 
-const ConditionalExpression = (node) => {
+const VariableDeclarator = (node, scope) => {
+    const {id, init} = node
+    return {
+        name: id.name,
+        init: scope.traverse(init)
+    }
+}
+
+const ReturnStatement = (node, scope) => {
+    return scope.traverse(node.argument)
+}
+
+const ConditionalExpression = (node, scope) => {
     const {test, consequent, alternate} = node
-    return `IF(${visitNode(test)}, ${visitNode(consequent)}, ${visitNode(alternate)})`
+    return `IF(${scope.traverse(test)}, ${scope.traverse(consequent)}, ${scope.traverse(alternate)})`
 }
 
 const Literal = (node) => {
@@ -89,22 +93,22 @@ const AssignmentExpression = (node) => {
 }
 
 
-const ExportDefaultDeclaration = (node) => {
-    return visitNode(node.declaration)
+const ExportDefaultDeclaration = (node, scope) => {
+    return scope.traverse(node.declaration)
 }
 
-const ExportNamedDeclaration = (node) => {
+const ExportNamedDeclaration = (node, scope) => {
     const declaration = node.declaration.declarations[0]
     const {id, init} = declaration
-    return [visitNode(id), visitNode(init)]
+    return [scope.traverse(id), scope.traverse(init)]
 }
 
-const MemberExpression = (node) => {
+const MemberExpression = (node, scope) => {
     const {object, property} = node
     if (object.type === "MemberExpression") {
-        return `INDEX(${visitNode(object.object)}, ${visitNode(object.property)}, ${visitNode(property)})`
+        return `INDEX(${scope.traverse(object.object)}, ${scope.traverse(object.property)}, ${scope.traverse(property)})`
     } else {
-        return `INDEX(${visitNode(object)}, ${visitNode(property)})`
+        return `INDEX(${scope.traverse(object)}, ${scope.traverse(property)})`
     }
 }
 
@@ -113,67 +117,84 @@ const SequenceExpression = (node) => {
     return expressions.map(visitNode).join(":")
 }
 
-const visitor = {
-    ExpressionStatement,
-    Program,
-    CallExpression,
-    BlockStatement,
-    BinaryExpression,
-    BinaryExpression,
-    ArrowFunctionExpression,
-    Identifier,
-    VariableDeclaration,
-    VariableDeclarator,
-    ReturnStatement,
-    ConditionalExpression,
-    Literal,
-    AssignmentExpression,
-    MemberExpression,
-    SequenceExpression,
-    ExportDefaultDeclaration,
-    ExportNamedDeclaration
-}
-
-const visitNode = (node) => {
-    return visitor[node.type](node)
-    switch (node.type) {
-        case "ExpressionStatement":
-            return visitExpressionStatement(node)
-        case "Program":
-            return visitProgram(node)
-        case "CallExpression":
-            return visitCallExpression(node)
-        case "BlockStatement":
-            return visitBlockStatement(node)
-        case "BinaryExpression":
-            return visitBinaryExpression(node)
-        case "ArrowFunctionExpression":
-            return visitArrowFunctionExpression(node)
-        case "Identifier":
-            return visitIdentifier(node)
-        case "VariableDeclaration":
-            return visitVariableDeclaration(node)
-        case "VariableDeclarator":
-            return visitVariableDeclarator(node)
-        case "ReturnStatement":
-            return visitReturnStatement(node)
+const makeVisitor = () => {
+    return {
+        ExpressionStatement,
+        Program,
+        CallExpression,
+        BlockStatement,
+        BinaryExpression,
+        BinaryExpression,
+        ArrowFunctionExpression,
+        Identifier,
+        VariableDeclaration,
+        VariableDeclarator,
+        ReturnStatement,
+        ConditionalExpression,
+        Literal,
+        AssignmentExpression,
+        MemberExpression,
+        SequenceExpression,
+        ExportDefaultDeclaration,
+        ExportNamedDeclaration
     }
 }
 
-const compile = async (programLocation) => {
+const visitNode = (node, visitor) => {
+    const scope = {}
+    // console.log({visitor})
+    const traverse = (node) => visitor[node.type](node, scope)
+    scope.traverse = traverse
+    return scope.traverse(node)
+    // return visitor[node.type](node)
+    // switch (node.type) {
+    //     case "ExpressionStatement":
+    //         return visitExpressionStatement(node)
+    //     case "Program":
+    //         return visitProgram(node)
+    //     case "CallExpression":
+    //         return visitCallExpression(node)
+    //     case "BlockStatement":
+    //         return visitBlockStatement(node)
+    //     case "BinaryExpression":
+    //         return visitBinaryExpression(node)
+    //     case "ArrowFunctionExpression":
+    //         return visitArrowFunctionExpression(node)
+    //     case "Identifier":
+    //         return visitIdentifier(node)
+    //     case "VariableDeclaration":
+    //         return visitVariableDeclaration(node)
+    //     case "VariableDeclarator":
+    //         return visitVariableDeclarator(node)
+    //     case "ReturnStatement":
+    //         return visitReturnStatement(node)
+    // }
+}
+
+const compile = async (programLocation, opts) => {
     const file = await readFile(programLocation, "utf-8")
     const program = acorn.parse(file, {ecmaVersion: "2020", sourceType: "module"})
-    return visitNode(program).main
+    const visitor = makeVisitor()
+    const {main, variables} = visitNode(program, visitor)
+    const pack = opts.pack ?? false
+    if (pack) {
+        return `=${functionWithVariables(variables, main)}`
+    } else {
+        const functions = Object.fromEntries(variables.map(({name, init}) => {
+            return [name, `=${init}`]
+        }))
+        return {...functions, "_main_": `=${main}`}
+    }
 }
 
 const compileExports = async (programLocation) => {
     const file = await readFile(programLocation, "utf-8")
     const program = acorn.parse(file, {ecmaVersion: "2020", sourceType: "module"})
-    const { exports } =  visitNode(program)
+    const visitor = makeVisitor()
+    const { exports } =  visitNode(program, visitor)
     await writeFile(`${programLocation.slice(0, -3)}.exports.json`, JSON.stringify(exports), 'utf-8')
 }
 
-const output = await compile(fileLocation)
+const output = await compile(fileLocation, {pack: false})
+console.log(JSON.stringify(output))
 compileExports(fileLocation)
-// console.log(program)
-console.log(output)
